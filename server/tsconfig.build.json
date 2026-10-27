@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.node.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "composite": false,
+    "noEmit": false,
+    "rootDir": ".",
+    "outDir": "../build-server"
+  },
+  "include": ["index.ts"]
+}

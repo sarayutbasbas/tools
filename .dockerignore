@@ -1,0 +1,13 @@
+node_modules
+dist
+build-server
+.toolbox-bin
+.removed-features
+.toolbox-temp
+.git
+.agents
+.env
+.env.*
+*.log
+*.tsbuildinfo
+.DS_Store

@@ -1,0 +1,40 @@
+{
+  "name": "toolbox-media-workbench",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/ensure-yt-dlp.mjs",
+    "setup:yt-dlp": "node scripts/ensure-yt-dlp.mjs --force",
+    "dev": "concurrently -k -n api,web -c green,blue \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:web": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "tsc -b && vite build",
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc -b --pretty false",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/ibm-plex-sans": "latest",
+    "@fontsource-variable/noto-sans-thai": "latest",
+    "@jsquash/webp": "^1.5.0",
+    "express": "latest",
+    "lucide-react": "latest",
+    "multer": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "youtube-dl-exec": "latest"
+  },
+  "devDependencies": {
+    "@types/express": "latest",
+    "@types/multer": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}

@@ -1,0 +1,11 @@
+services:
+  toolbox:
+    build: .
+    image: toolbox:local
+    ports:
+      - "1111:1111"
+    environment:
+      NODE_ENV: production
+      PORT: "1111"
+    init: true
+    restart: unless-stopped
