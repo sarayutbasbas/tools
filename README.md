@@ -40,20 +40,32 @@ Container ใช้ผู้ใช้ที่ไม่ใช่ root และ�
 ## หน้าเว็บบน Vercel และ API ใน Docker
 
 `vercel.json` กำหนดให้ Vercel build หน้าเว็บด้วย Vite และส่ง `/api/*` ไปยัง
-`https://tools.basnana.com/api/*` ผ่าน Cloudflare Tunnel โดยคง path และ query ไว้
+`https://bn-tools.basnana.com/api/*` ผ่าน Cloudflare Tunnel โดยคง path และ query ไว้
 จึงใช้ได้ทั้งอ่านข้อมูลคลิป, progress, รับไฟล์ และบีบอัดวิดีโอ ส่วน Docker
 ยังเป็นผู้รัน Express, yt-dlp และ FFmpeg และต้องเปิดเครื่องไว้ขณะใช้งาน
 
-Cloudflare Tunnel ที่กำหนด hostname นี้ต้องชี้ไป `http://host.docker.internal:1111`
-และ DNS ของ `basnana.com` ต้องมี record ดังนี้:
+หน้าเว็บ `tools.basnana.com` ผูกกับโปรเจกต์ Vercel เดียวกับ
+`tools-puce-nu.vercel.app` ส่วน `bn-tools.basnana.com` ใช้เป็น API origin
+ต้องใช้คนละ hostname เพื่อไม่ให้ API rewrite วนกลับเข้าหน้าเว็บ
+
+DNS ของ `basnana.com` สำหรับหน้าเว็บ:
 
 - Type: `CNAME`
 - Name: `tools`
+- Target: `cname.vercel-dns.com` (ค่าที่ Vercel แนะนำสำหรับโดเมนนี้)
+- Proxy status: **DNS only**
+
+Cloudflare Tunnel ที่กำหนด hostname `bn-tools.basnana.com` ต้องชี้ไป
+`http://host.docker.internal:1111` และมี DNS สำหรับ API ดังนี้:
+
+- Type: `CNAME`
+- Name: `bn-tools`
 - Target: `19cf8c54-3b82-4793-8f72-a300614864d2.cfargotunnel.com`
 - Proxy status: **Proxied**
 
-ตรวจให้ `https://tools.basnana.com/api/health` คืน JSON `{"ok":true,...}`
-ก่อน deploy หน้าเว็บ แล้วตรวจ `https://tools-puce-nu.vercel.app/api/health`
+ตรวจให้ `https://bn-tools.basnana.com/api/health` คืน JSON `{"ok":true,...}`
+ก่อน deploy หน้าเว็บ แล้วตรวจ `https://tools.basnana.com/api/health` และ
+`https://tools-puce-nu.vercel.app/api/health`
 อีกครั้งหลัง deploy การ deploy แบบ Vite อย่างเดียวจะไม่รัน `server/index.ts`
 และ proxy ใน `vite.config.ts` ใช้เฉพาะ dev server
 
@@ -63,7 +75,7 @@ Vercel Functions โดยเก็บสถานะใน memory และไ�
 
 ข้อจำกัดของเส้นทางนี้: Vercel external rewrites มี timeout สูงสุด 120 วินาที
 ([เอกสาร](https://vercel.com/docs/limits)) งานที่ใช้เวลานานกว่านั้นควรเปิด
-`https://tools.basnana.com` โดยตรง เพื่อตัด Vercel proxy ออกจากเส้นทาง
+`https://bn-tools.basnana.com` โดยตรง เพื่อตัด Vercel proxy ออกจากเส้นทาง
 ขนาดอัปโหลดและ timeout ยังขึ้นกับแผน Cloudflare ด้วย
 
 ## การทำงาน

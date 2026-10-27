@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://tools.basnana.com/api/:path*"
+      "destination": "https://bn-tools.basnana.com/api/:path*"
     }
   ],
   "headers": [
