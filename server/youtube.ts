@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Express } from 'express';
 import { parseMediaLink, platformNames } from './media-links.js';
+import { mp4Encoding, type VideoStreamInfo } from './mp4-encoding.js';
 
 const require = createRequire(import.meta.url);
 const fallbackBinary = require('youtube-dl-exec').constants.YOUTUBE_DL_PATH as string;
@@ -260,21 +261,41 @@ export function registerYoutubeRoutes(app: Express) {
 
       const outputPath = join(jobDir, `output.${format}`);
       const qualityLabel = quality === 'best' ? 'คุณภาพสูงสุด' : `${quality}${format === 'mp3' ? ' kbps' : 'p'}`;
-      const preparing = `กำลังเตรียมไฟล์ ${format.toUpperCase()} ${qualityLabel}`;
+      const preparing = format === 'mp4'
+        ? `กำลังเตรียม MP4 ${qualityLabel} สำหรับ iPhone และเครื่องเล่นทั่วไป`
+        : `กำลังเตรียมไฟล์ MP3 ${qualityLabel}`;
       emit({ type: 'progress', phase: 'prepare', percent: 0, message: preparing, filename });
       const inputs = paths.flatMap((path) => ['-i', path]);
       const videoIndex = streams.findIndex((stream) => stream.vcodec && stream.vcodec !== 'none');
       const audioIndex = streams.findIndex((stream) => stream.acodec && stream.acodec !== 'none');
+      let videoSource: VideoStreamInfo = {};
+      if (format === 'mp4') {
+        const probe = JSON.parse(await run(process.env.FFPROBE_PATH || 'ffprobe', [
+          '-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', paths[Math.max(0, videoIndex)],
+        ], controller.signal)) as { streams: VideoStreamInfo[] };
+        if (!probe.streams[0]) throw new Error('ไม่พบภาพวิดีโอในไฟล์ที่ดาวน์โหลด');
+        videoSource = probe.streams[0];
+      }
       const encoding = format === 'mp3'
         ? ['-map', `${Math.max(0, audioIndex)}:a:0`, '-vn', '-c:a', 'libmp3lame', ...mp3Encoding(quality)]
-        : ['-map', `${Math.max(0, videoIndex)}:v:0`, '-map', `${Math.max(0, audioIndex)}:a:0?`, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart'];
+        : mp4Encoding(videoIndex, audioIndex, videoSource);
       await run(process.env.FFMPEG_PATH || 'ffmpeg', [
-        '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...inputs,
+        '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-filter_threads', '2', ...inputs,
         ...encoding, '-metadata', `title=${metadata.title}`, '-progress', 'pipe:1', '-nostats', outputPath,
       ], controller.signal, (line) => {
         const percent = preparationPercent(line, metadata.duration || 0);
         if (percent !== null) emit({ type: 'progress', phase: 'prepare', percent, message: preparing, filename });
       });
+      if (format === 'mp4') {
+        const output = JSON.parse(await run(process.env.FFPROBE_PATH || 'ffprobe', [
+          '-v', 'error', '-show_streams', '-of', 'json', outputPath,
+        ], controller.signal)) as { streams: Array<VideoStreamInfo & { codec_type: string }> };
+        const video = output.streams.find((item) => item.codec_type === 'video');
+        if (video?.codec_name !== 'h264' || video.pix_fmt !== 'yuv420p' ||
+            output.streams.some((item) => item.codec_type === 'audio' && item.codec_name !== 'aac')) {
+          throw new Error('เตรียม MP4 ที่รองรับเครื่องเล่นไม่สำเร็จ กรุณาลองอีกครั้ง');
+        }
+      }
       completed = true;
       if (progress) {
         const id = randomUUID();
