@@ -3,6 +3,7 @@ import { parseMediaLink } from '../server/media-links';
 import { compressImage } from './image-compression';
 import type { ImageCompressionResult } from './image-compression-result';
 import { keepOriginalFile } from '../server/compression-policy';
+import { readApiJson, requireApiStream } from './api-response';
 import {
   ArrowDownToLine, Check, ChevronRight, CircleAlert, FileAudio, FileVideo,
   Gauge, Image as ImageIcon, Link2, LoaderCircle, LockKeyhole, PackageOpen,
@@ -71,8 +72,7 @@ function DownloadTool() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: link.url }), signal: controller.signal,
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'อ่านคุณภาพของคลิปไม่สำเร็จ');
+        const data = await readApiJson<ClipInfo>(response);
         if (controller.signal.aborted) return;
         setClipInfo(data);
         setInfoStatus('success');
@@ -105,10 +105,7 @@ function DownloadTool() {
           quality: (format === 'mp3' ? audioQuality : videoQuality) === 'best' ? 'best' : Number(format === 'mp3' ? audioQuality : videoQuality) }),
         signal: controller.signal,
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'ดาวน์โหลดไม่สำเร็จ');
-      }
+      await requireApiStream(response);
       if (!response.body) throw new Error('เบราว์เซอร์ไม่รองรับการแสดงความคืบหน้า');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -116,7 +113,10 @@ function DownloadTool() {
       let ready: { filename: string; downloadUrl: string } | undefined;
       const consumeLine = (line: string) => {
         if (!line.trim()) return;
-        const event = JSON.parse(line);
+        let event;
+        try { event = JSON.parse(line); }
+        catch { throw new Error('การเชื่อมต่อกับเซิร์ฟเวอร์ขาดหาย กรุณาลองดาวน์โหลดอีกครั้ง'); }
+        if (!event || typeof event !== 'object') throw new Error('ข้อมูลความคืบหน้าจากเซิร์ฟเวอร์ไม่ถูกต้อง');
         if (event.type === 'error') throw new Error(event.message || 'ดาวน์โหลดไม่สำเร็จ');
         if (event.type === 'progress') {
           setPercent(event.percent);
@@ -141,7 +141,10 @@ function DownloadTool() {
       setMessage('กำลังรับไฟล์ลงเครื่อง');
       setPercent(0);
       const fileResponse = await fetch(ready.downloadUrl, { signal: controller.signal });
-      if (!fileResponse.ok || !fileResponse.body) throw new Error('รับไฟล์ไม่สำเร็จ กรุณาดาวน์โหลดอีกครั้ง');
+      if (!fileResponse.ok) await readApiJson(fileResponse);
+      if (!fileResponse.body || !/^(audio\/|video\/|application\/octet-stream)/i.test(fileResponse.headers.get('content-type') || '')) {
+        throw new Error('เซิร์ฟเวอร์ไม่ได้ส่งไฟล์กลับมา กรุณาลองดาวน์โหลดอีกครั้ง');
+      }
       const total = Number(fileResponse.headers.get('content-length'));
       const fileReader = fileResponse.body.getReader();
       const chunks: BlobPart[] = [];
@@ -293,8 +296,10 @@ function CompressorTool() {
         form.append('file', file); form.append('quality', String(quality)); form.append('filename', file.name);
         const response = await fetch('/api/compress/video', { method: 'POST', body: form, signal: controller.signal });
         if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || 'บีบอัดวิดีโอไม่สำเร็จ');
+          await readApiJson(response);
+        }
+        if (!/^(video\/|application\/octet-stream)/i.test(response.headers.get('content-type') || '')) {
+          throw new Error('เซิร์ฟเวอร์ไม่ได้ส่งไฟล์วิดีโอกลับมา กรุณาลองอีกครั้ง');
         }
         blob = await response.blob();
         const sourceFps = Number(response.headers.get('X-Source-Fps'));
@@ -382,11 +387,32 @@ function CompressorTool() {
 
 export default function App() {
   const [activeTool, setActiveTool] = useState<Tool>('download');
+  const [serverStatus, setServerStatus] = useState<Status>('loading');
+  useEffect(() => {
+    let stopped = false;
+    let request: AbortController | undefined;
+    const check = async () => {
+      request?.abort();
+      const controller = new AbortController();
+      request = controller;
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch('/api/health', { cache: 'no-store', signal: controller.signal });
+        const result = await readApiJson<{ ok: boolean }>(response);
+        if (!stopped && request === controller) setServerStatus(result.ok ? 'success' : 'error');
+      } catch { if (!stopped && request === controller) setServerStatus('error'); }
+      finally { clearTimeout(timeout); }
+    };
+    void check();
+    const timer = setInterval(() => { void check(); }, 30000);
+    window.addEventListener('online', check);
+    return () => { stopped = true; clearInterval(timer); request?.abort(); window.removeEventListener('online', check); };
+  }, []);
   return (
     <div className="app-shell">
       <header className="mobile-header">
         <a className="brand" href="#" aria-label="Toolbox home"><img className="brand-mark" src="/brand/toolbox-mark-128.png" width="36" height="36" alt="" /><span>Toolbox</span></a>
-        <span className="online-dot">พร้อมใช้งาน</span>
+        <span className={`online-dot ${serverStatus}`} role="status">{serverStatus === 'success' ? 'พร้อมใช้งาน' : serverStatus === 'loading' ? 'กำลังตรวจสอบ' : 'เซิร์ฟเวอร์ไม่พร้อม'}</span>
       </header>
       <aside className="sidebar">
         <a className="brand" href="#" aria-label="Toolbox home"><img className="brand-mark" src="/brand/toolbox-mark-128.png" width="36" height="36" alt="" /><span>Toolbox</span></a>

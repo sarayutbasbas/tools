@@ -168,7 +168,9 @@ export function registerYoutubeRoutes(app: Express) {
         videoQualities: availableVideoQualities(formats), audioBitrates,
         sourceAudioKbps: sourceAudioKbps ? Math.round(sourceAudioKbps) : null });
     } catch (error) {
-      if (!res.destroyed) res.status(502).json({ error: mediaError(error) });
+      // This is a media-processing failure, not a gateway failure. Cloudflare
+      // can replace origin 502 responses with HTML and hide our JSON message.
+      if (!res.destroyed) res.status(422).json({ error: mediaError(error) });
     }
   });
 
@@ -296,7 +298,7 @@ export function registerYoutubeRoutes(app: Express) {
       const message = mediaError(error);
       if (!res.destroyed) {
         if (progress) { emit({ type: 'error', message }); res.end(); }
-        else res.status(502).json({ error: message });
+        else res.status(422).json({ error: message });
       }
     } finally {
       if (heartbeat) clearInterval(heartbeat);

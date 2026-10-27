@@ -31,6 +31,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role='button']
 .brand-mark { width: 36px; height: 36px; display: block; flex-shrink: 0; object-fit: contain; }
 .online-dot { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .online-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #4c8a6b; box-shadow: 0 0 0 3px #dce9e1; }
+.online-dot.error::before { background: #a33d32; box-shadow: 0 0 0 3px #f2e1de; }
+.online-dot.loading::before { background: #9b835b; box-shadow: 0 0 0 3px #eee8dd; }
 
 .sidebar { display: none; }
 main { min-width: 0; }

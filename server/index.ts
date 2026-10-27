@@ -14,6 +14,11 @@ app.use((_req, res, next) => {
   next();
 });
 
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, ffmpeg: existsSync('/opt/homebrew/bin/ffmpeg') ? 'available' : 'system' });
 });

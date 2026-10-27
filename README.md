@@ -37,6 +37,35 @@ docker run -d --name toolbox --init --restart unless-stopped -p 1111:1111 toolbo
 
 Container ใช้ผู้ใช้ที่ไม่ใช่ root และมี health check ที่ `/api/health` ไฟล์ประมวลผลชั่วคราวอยู่ใน container และไม่ต้องใช้ volume
 
+## หน้าเว็บบน Vercel และ API ใน Docker
+
+`vercel.json` กำหนดให้ Vercel build หน้าเว็บด้วย Vite และส่ง `/api/*` ไปยัง
+`https://tools.basnana.com/api/*` ผ่าน Cloudflare Tunnel โดยคง path และ query ไว้
+จึงใช้ได้ทั้งอ่านข้อมูลคลิป, progress, รับไฟล์ และบีบอัดวิดีโอ ส่วน Docker
+ยังเป็นผู้รัน Express, yt-dlp และ FFmpeg และต้องเปิดเครื่องไว้ขณะใช้งาน
+
+Cloudflare Tunnel ที่กำหนด hostname นี้ต้องชี้ไป `http://host.docker.internal:1111`
+และ DNS ของ `basnana.com` ต้องมี record ดังนี้:
+
+- Type: `CNAME`
+- Name: `tools`
+- Target: `19cf8c54-3b82-4793-8f72-a300614864d2.cfargotunnel.com`
+- Proxy status: **Proxied**
+
+ตรวจให้ `https://tools.basnana.com/api/health` คืน JSON `{"ok":true,...}`
+ก่อน deploy หน้าเว็บ แล้วตรวจ `https://tools-puce-nu.vercel.app/api/health`
+อีกครั้งหลัง deploy การ deploy แบบ Vite อย่างเดียวจะไม่รัน `server/index.ts`
+และ proxy ใน `vite.config.ts` ใช้เฉพาะ dev server
+
+ไฟล์และสถานะดาวน์โหลดอยู่ใน Docker instance เดิม ห้ามเปลี่ยน API ชุดนี้เป็น
+Vercel Functions โดยเก็บสถานะใน memory และไฟล์ใน `/tmp` เหมือนเดิม เพราะ
+คำขอดาวน์โหลดไฟล์ภายหลังอาจไปคนละ instance
+
+ข้อจำกัดของเส้นทางนี้: Vercel external rewrites มี timeout สูงสุด 120 วินาที
+([เอกสาร](https://vercel.com/docs/limits)) งานที่ใช้เวลานานกว่านั้นควรเปิด
+`https://tools.basnana.com` โดยตรง เพื่อตัด Vercel proxy ออกจากเส้นทาง
+ขนาดอัปโหลดและ timeout ยังขึ้นกับแผน Cloudflare ด้วย
+
 ## การทำงาน
 
 - รูป JPEG, PNG และ WebP ประมวลผลในเบราว์เซอร์ด้วย libwebp/WebAssembly (`@jsquash/webp`) ใน Web Worker โดยไม่อัปโหลดรูปไปยังเซิร์ฟเวอร์ ค่า quality ใช้กับตัวเข้ารหัสจริงและเก็บพื้นโปร่งใสไว้ จึงไม่พึ่ง `canvas.toBlob('image/webp')` ที่อาจคืน PNG บน Safari
