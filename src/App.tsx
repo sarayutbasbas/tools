@@ -6,7 +6,7 @@ import { keepOriginalFile } from '../server/compression-policy';
 import { readApiJson, requireApiStream } from './api-response';
 import {
   ArrowDownToLine, Check, ChevronRight, CircleAlert, FileAudio, FileVideo,
-  Gauge, Image as ImageIcon, Link2, LoaderCircle, LockKeyhole, PackageOpen,
+  Gauge, Image as ImageIcon, Link2, LoaderCircle, PackageOpen,
   Sparkles, UploadCloud, Video,
 } from 'lucide-react';
 
@@ -170,13 +170,10 @@ function DownloadTool() {
   };
 
   return (
-    <section className="tool-panel" aria-labelledby="download-title">
+    <section className="tool-panel download-panel" aria-labelledby="download-title">
       <div className="panel-heading">
-        <div><p className="section-kicker">ดึงจากลิงก์</p><h1 id="download-title">Media Downloader</h1></div>
-        <div className="privacy-note"><LockKeyhole size={15} /> ไม่เก็บประวัติ</div>
+        <h1 id="download-title">Media Downloader</h1>
       </div>
-
-      <p className="intro">ดาวน์โหลดเสียงและวิดีโอจาก YouTube, TikTok และ Instagram</p>
 
       <div className="field-stack">
         <label htmlFor="media-url">ลิงก์วิดีโอ</label>
@@ -188,7 +185,7 @@ function DownloadTool() {
         </div>
       </div>
 
-      {clipInfo && <div className="clip-info"><span className="source-platform">{clipInfo.platform}</span><p className="clip-title">{clipInfo.title}</p>
+      {clipInfo && <div className="clip-info"><span className="source-platform">{clipInfo.platform}</span><p className="clip-title" title={clipInfo.title}>{clipInfo.title}</p>
         {clipInfo.notice && <p className="quality-hint">{clipInfo.notice}</p>}</div>}
 
       <fieldset className="format-fieldset" disabled={status === 'loading'}>
@@ -196,12 +193,12 @@ function DownloadTool() {
         <div className="format-grid">
           <button className={`format-card ${format === 'mp3' ? 'selected' : ''}`} onClick={() => setFormat('mp3')} aria-pressed={format === 'mp3'}>
             <span className="format-icon"><FileAudio size={23} /></span>
-            <span><strong>MP3</strong><small>เสียงคุณภาพสูง · ไฟล์เล็ก</small></span>
+            <span><strong>MP3</strong><small>เสียง</small></span>
             <span className="radio-mark">{format === 'mp3' && <Check size={13} />}</span>
           </button>
           <button className={`format-card ${format === 'mp4' ? 'selected' : ''}`} onClick={() => setFormat('mp4')} aria-pressed={format === 'mp4'}>
             <span className="format-icon"><FileVideo size={23} /></span>
-            <span><strong>MP4</strong><small>ภาพและเสียง · พร้อมดู</small></span>
+            <span><strong>MP4</strong><small>วิดีโอ</small></span>
             <span className="radio-mark">{format === 'mp4' && <Check size={13} />}</span>
           </button>
         </div>
@@ -224,10 +221,10 @@ function DownloadTool() {
         {infoStatus === 'error' && <div className="quality-error" role="status"><span>{infoError}</span><button onClick={() => setInfoRetry((value) => value + 1)}>ลองใหม่</button></div>}
         {format === 'mp4' && infoStatus === 'idle' && <p className="quality-hint">วางลิงก์เพื่อดูความละเอียดที่คลิปนี้มีจริง</p>}
         {format === 'mp4' && clipInfo && !clipInfo.videoQualities.length && <p className="quality-hint">{clipInfo.hasVideo ? 'แหล่งนี้ไม่ระบุความละเอียด ระบบจะใช้คุณภาพสูงสุดที่มี' : 'ลิงก์นี้ไม่มีวิดีโอให้ดาวน์โหลด'}</p>}
-        {format === 'mp3' && <p className="quality-hint">{clipInfo?.sourceAudioKbps ? `เสียงต้นฉบับสูงสุดประมาณ ${clipInfo.sourceAudioKbps} kbps · ` : ''}bitrate สูงขึ้นทำให้ไฟล์ใหญ่ขึ้น แต่ไม่เพิ่มรายละเอียดจากต้นฉบับ</p>}
         {format === 'mp3' && clipInfo && !clipInfo.hasAudio && <p className="quality-hint">คลิปนี้ไม่มีแทร็กเสียงสำหรับแปลงเป็น MP3 เลือก MP4 เพื่อดาวน์โหลดวิดีโอ</p>}
       </div>
 
+      <div className="tool-footer">
       <button className="primary-button" onClick={handleDownload}
         disabled={status === 'loading' || infoStatus === 'loading' || (format === 'mp4' && (!clipInfo || !clipInfo.hasVideo)) || (format === 'mp3' && clipInfo?.hasAudio === false)}>
         {status === 'loading' ? <LoaderCircle size={19} className="spin" /> : <ArrowDownToLine size={19} />}
@@ -237,11 +234,11 @@ function DownloadTool() {
         <div className="download-progress">
           <div className="download-progress-heading"><span>{message}</span><strong>{percent === null ? '…' : `${percent}%`}</strong></div>
           <progress max="100" value={percent ?? undefined} aria-label={message} />
-          {filename && <p className="download-filename">{filename}</p>}
+          {filename && <p className="download-filename" title={filename}>{filename}</p>}
         </div>
       )}
-      <StatusLine status={status} text={message} />
-      <p className="legal-note">ดาวน์โหลดเฉพาะสื่อที่คุณเป็นเจ้าของหรือได้รับอนุญาตให้ใช้งาน</p>
+      {status === 'error' && <StatusLine status={status} text={message} />}
+      </div>
     </section>
   );
 }
@@ -255,10 +252,9 @@ function CompressorTool() {
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<{ blob: Blob; name: string; keptOriginal: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [imageResult, setImageResult] = useState<ImageCompressionResult | null>(null);
   const [videoInfo, setVideoInfo] = useState<{ sourceFps: number; outputFps: number; frames: number } | null>(null);
 
-  useEffect(() => { setResult(null); setImageResult(null); setVideoInfo(null); setStatus('idle'); }, [file, quality]);
+  useEffect(() => { setResult(null); setVideoInfo(null); setStatus('idle'); }, [file, quality]);
   useEffect(() => () => controllerRef.current?.abort(), []);
 
   const pickFile = (candidate?: File) => {
@@ -290,7 +286,6 @@ function CompressorTool() {
         blob = compressedImage.blob;
         name = compressedImage.name;
         keptOriginal = compressedImage.keptOriginal;
-        setImageResult(compressedImage);
       } else {
         const form = new FormData();
         form.append('file', file); form.append('quality', String(quality)); form.append('filename', file.name);
@@ -328,12 +323,10 @@ function CompressorTool() {
   };
 
   return (
-    <section className="tool-panel" aria-labelledby="compress-title">
+    <section className="tool-panel compress-panel" aria-labelledby="compress-title">
       <div className="panel-heading">
-        <div><p className="section-kicker">ทำให้เบาลง</p><h1 id="compress-title">Media Compressor</h1></div>
-        <div className="privacy-note"><LockKeyhole size={15} /> ภาพทำบนเครื่อง</div>
+        <h1 id="compress-title">Media Compressor</h1>
       </div>
-      <p className="intro">ลดขนาดรูปและวิดีโอ โดยคุมระดับรายละเอียดได้เอง</p>
 
       {!file ? (
         <div className={`drop-zone ${dragging ? 'dragging' : ''}`} onClick={() => inputRef.current?.click()}
@@ -348,7 +341,7 @@ function CompressorTool() {
       ) : (
         <div className="file-card">
           <div className="file-thumb">{file.type.startsWith('image/') ? <ImageIcon size={25} /> : <Video size={25} />}</div>
-          <div className="file-meta"><strong>{file.name}</strong><span>{readableSize(file.size)} · {file.type.split('/')[1].toUpperCase()}</span></div>
+          <div className="file-meta"><strong title={file.name}>{file.name}</strong><span>{readableSize(file.size)} · {file.type.split('/')[1].toUpperCase()}{videoInfo && ` · ${videoInfo.outputFps.toFixed(2)} fps`}</span></div>
           <button className="replace-button" disabled={status === 'loading'} onClick={() => { setFile(null); setResult(null); }}>เปลี่ยน</button>
         </div>
       )}
@@ -358,8 +351,6 @@ function CompressorTool() {
         <input id="quality" type="range" min="1" max="100" value={quality} disabled={status === 'loading'} onChange={(event) => setQuality(Number(event.target.value))}
           style={{ '--range-value': `${quality}%` } as React.CSSProperties} />
         <div className="range-labels"><span>ไฟล์เล็ก</span><span>สมดุล</span><span>คมชัด</span></div>
-        <p className="quality-hint">ปรับคุณภาพแล้วกดเริ่มบีบอัดใหม่เพื่ออัปเดตผลลัพธ์</p>
-        {file?.type.startsWith('video/') && <p className="quality-hint">คงอัตราเฟรมเดิมทุกระดับคุณภาพ ไม่ลด 60 fps เป็น 30 fps</p>}
       </div>
 
       {file && result && (
@@ -369,9 +360,8 @@ function CompressorTool() {
           <div className="after"><span>หลัง</span><strong>{readableSize(result.blob.size)}</strong></div>
         </div>
       )}
-      {imageResult && !imageResult.keptOriginal && <p className="quality-hint">WebP ที่คุณภาพ {imageResult.quality}%: {readableSize(result?.blob.size || 0)} · เข้ารหัสบนเครื่อง ไม่อัปโหลดภาพ</p>}
-      {videoInfo && <p className="quality-hint">อัตราเฟรม {videoInfo.sourceFps.toFixed(2)} → {videoInfo.outputFps.toFixed(2)} fps · คงครบ {videoInfo.frames.toLocaleString()} เฟรม</p>}
 
+      <div className="tool-footer">
       {result ? (
         <button className="primary-button" onClick={() => downloadBlob(result.blob, result.name)}><ArrowDownToLine size={19} />{result.keptOriginal ? 'ดาวน์โหลดไฟล์เดิม' : 'ดาวน์โหลดไฟล์ที่บีบอัด'}</button>
       ) : (
@@ -381,6 +371,7 @@ function CompressorTool() {
         </button>
       )}
       <StatusLine status={status} text={message} />
+      </div>
     </section>
   );
 }
@@ -431,13 +422,6 @@ export default function App() {
         </div>
         <div className="workspace">
           {activeTool === 'download' ? <DownloadTool /> : <CompressorTool />}
-          <aside className="context-panel" aria-label="ข้อมูลเครื่องมือ">
-            <div className="context-icon">{activeTool === 'download' ? <ArrowDownToLine size={26} /> : <Gauge size={26} />}</div>
-            <h2>{activeTool === 'download' ? 'เลือกเฉพาะที่ต้องใช้' : 'เล็กลงโดยยังดูดี'}</h2>
-            <p>{activeTool === 'download' ? 'MP3 เหมาะกับเพลงและพอดแคสต์ ส่วน MP4 เก็บทั้งภาพและเสียงไว้ครบ' : 'ระบบใช้ WebP สำหรับภาพ และ H.264 แบบปรับ CRF สำหรับวิดีโอ เพื่อสมดุลขนาดกับรายละเอียด'}</p>
-            <div className="context-rule" />
-            <p className="context-tip"><span>เคล็ดลับ</span>{activeTool === 'download' ? 'วิดีโอยาวจะใช้เวลาเตรียมไฟล์มากขึ้น ปล่อยหน้านี้เปิดไว้จนดาวน์โหลดเริ่ม' : 'ค่า 65–80% เหมาะกับการแชร์ทั่วไป และมักลดขนาดได้มากโดยยังดูคมชัด'}</p>
-          </aside>
         </div>
       </main>
     </div>
