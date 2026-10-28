@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Express } from 'express';
 import { parseMediaLink, platformNames } from './media-links.js';
+import { mediaProxy } from './media-network.js';
 import { mp4Encoding, type VideoStreamInfo } from './mp4-encoding.js';
 
 const require = createRequire(import.meta.url);
@@ -67,9 +68,9 @@ export function normalizeMetadata(input: Metadata): Metadata {
     const video = input.entries.find((entry) => entry && (
       entry.formats?.some((item) => item.vcodec !== 'none' && ['mp4', 'webm'].includes(item.ext || '')) ||
       ['mp4', 'webm'].includes(entry.ext || '')
-    ));
-    if (!video) throw new Error('โพสต์นี้ไม่มีวิดีโอให้ดาวน์โหลด กรุณาใช้ลิงก์วิดีโอหรือ Reel');
-    metadata = { ...video, notice: 'โพสต์นี้มีหลายรายการ ระบบจะดาวน์โหลดวิดีโอแรก' };
+    )) || input.entries.find(entry => entry?.formats?.some(item => item.acodec !== 'none' && !item.has_drm));
+    if (!video) throw new Error('โพสต์นี้ไม่มีเสียงหรือวิดีโอให้ดาวน์โหลด กรุณาใช้ลิงก์คลิปโดยตรง');
+    metadata = { ...video, notice: 'ลิงก์นี้มีหลายรายการ ระบบจะดาวน์โหลดรายการแรกที่มีสื่อ' };
   }
   if (!metadata.formats?.length && metadata.url && ['mp4', 'webm'].includes(metadata.ext || '')) {
     metadata = { ...metadata, formats: [{ ...metadata, format_id: metadata.format_id || 'http' }] };
@@ -111,7 +112,8 @@ export function preparationPercent(line: string, duration: number): number | nul
   return Number.isFinite(time) ? Math.max(0, Math.min(99, Math.round(time / (duration * 1e6) * 100))) : null;
 }
 
-function run(command: string, args: string[], signal: AbortSignal, onLine?: (line: string) => void): Promise<string> {
+async function run(command: string, args: string[], signal: AbortSignal, onLine?: (line: string) => void): Promise<string> {
+  if (command === binary) args = ['--proxy', (await mediaProxy()).url, '--downloader', 'native', ...args];
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { signal, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
@@ -134,7 +136,7 @@ function run(command: string, args: string[], signal: AbortSignal, onLine?: (lin
   });
 }
 
-export function registerYoutubeRoutes(app: Express) {
+export function registerYoutubeRoutes(app: Express, execute: typeof run = run) {
   const downloads = new Map<string, { path: string; filename: string; cleanup: () => Promise<void> }>();
   const metadataCache = new Map<string, { raw: string; expires: number }>();
   const common = ['--ignore-config', '--no-playlist', '--no-warnings', '--js-runtimes', 'node', '--socket-timeout', '20', '--retries', '2'];
@@ -142,7 +144,7 @@ export function registerYoutubeRoutes(app: Express) {
     const cached = metadataCache.get(url);
     if (cached && cached.expires > Date.now()) return cached.raw;
     metadataCache.delete(url);
-    const result = await run(binary, [...common, '--dump-single-json', '--skip-download', '--', url], signal);
+    const result = await execute(binary, [...common, '--playlist-items', '1', '--dump-single-json', '--skip-download', '--', url], signal);
     const raw = JSON.stringify(normalizeMetadata(JSON.parse(result) as Metadata));
     if (metadataCache.size >= 20) metadataCache.delete(metadataCache.keys().next().value!);
     metadataCache.set(url, { raw, expires: Date.now() + 5 * 60 * 1000 });
@@ -152,7 +154,7 @@ export function registerYoutubeRoutes(app: Express) {
   app.post(['/api/media/info', '/api/youtube/info'], async (req, res) => {
     const link = parseMediaLink(req.body?.url);
     if (!link) {
-      res.status(400).json({ error: 'กรุณาใส่ลิงก์คลิป YouTube, TikTok หรือ Instagram ที่ถูกต้อง' });
+      res.status(400).json({ error: 'กรุณาใส่ลิงก์วิดีโอที่ถูกต้อง' });
       return;
     }
     const controller = new AbortController();
@@ -188,7 +190,7 @@ export function registerYoutubeRoutes(app: Express) {
     const { format, progress, quality = 'best' } = req.body || {};
     const link = parseMediaLink(req.body?.url);
     if (!link || !['mp3', 'mp4'].includes(format)) {
-      res.status(400).json({ error: 'กรุณาใส่ลิงก์คลิป YouTube, TikTok หรือ Instagram ที่ถูกต้องและเลือกรูปแบบไฟล์' });
+      res.status(400).json({ error: 'กรุณาใส่ลิงก์วิดีโอที่ถูกต้องและเลือกรูปแบบไฟล์' });
       return;
     }
     let selector: string;
@@ -225,7 +227,7 @@ export function registerYoutubeRoutes(app: Express) {
         throw new Error(`คลิปนี้ไม่มีความละเอียด ${quality}p กรุณาอ่านข้อมูลคลิปและเลือกใหม่`);
       }
       await writeFile(infoPath, sourceMetadata);
-      const rawMetadata = await run(binary, [...common, '--dump-single-json', '--skip-download',
+      const rawMetadata = await execute(binary, [...common, '--dump-single-json', '--skip-download',
         '--load-info-json', infoPath, '-f', selector], controller.signal);
       const metadata = JSON.parse(rawMetadata) as Metadata;
       if (metadata.is_live) throw new Error('คลิปนี้กำลังถ่ายทอดสด กรุณารอให้การถ่ายทอดสดสิ้นสุดก่อน');
@@ -241,7 +243,7 @@ export function registerYoutubeRoutes(app: Express) {
           type: 'progress', phase: 'download', percent, message: label, filename,
         });
         update(0);
-        await run(binary, [
+        await execute(binary, [
           ...common, '--load-info-json', infoPath, '-f', stream.format_id,
           '--no-simulate', '--newline', '--progress', '--no-colors', '--fixup', 'never',
           '--progress-template', 'download:TOOLBOX_PROGRESS:%(progress)j',
@@ -270,7 +272,7 @@ export function registerYoutubeRoutes(app: Express) {
       const audioIndex = streams.findIndex((stream) => stream.acodec && stream.acodec !== 'none');
       let videoSource: VideoStreamInfo = {};
       if (format === 'mp4') {
-        const probe = JSON.parse(await run(process.env.FFPROBE_PATH || 'ffprobe', [
+        const probe = JSON.parse(await execute(process.env.FFPROBE_PATH || 'ffprobe', [
           '-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', paths[Math.max(0, videoIndex)],
         ], controller.signal)) as { streams: VideoStreamInfo[] };
         if (!probe.streams[0]) throw new Error('ไม่พบภาพวิดีโอในไฟล์ที่ดาวน์โหลด');
@@ -279,7 +281,7 @@ export function registerYoutubeRoutes(app: Express) {
       const encoding = format === 'mp3'
         ? ['-map', `${Math.max(0, audioIndex)}:a:0`, '-vn', '-c:a', 'libmp3lame', ...mp3Encoding(quality)]
         : mp4Encoding(videoIndex, audioIndex, videoSource);
-      await run(process.env.FFMPEG_PATH || 'ffmpeg', [
+      await execute(process.env.FFMPEG_PATH || 'ffmpeg', [
         '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-filter_threads', '2', ...inputs,
         ...encoding, '-metadata', `title=${metadata.title}`, '-progress', 'pipe:1', '-nostats', outputPath,
       ], controller.signal, (line) => {
@@ -287,7 +289,7 @@ export function registerYoutubeRoutes(app: Express) {
         if (percent !== null) emit({ type: 'progress', phase: 'prepare', percent, message: preparing, filename });
       });
       if (format === 'mp4') {
-        const output = JSON.parse(await run(process.env.FFPROBE_PATH || 'ffprobe', [
+        const output = JSON.parse(await execute(process.env.FFPROBE_PATH || 'ffprobe', [
           '-v', 'error', '-show_streams', '-of', 'json', outputPath,
         ], controller.signal)) as { streams: Array<VideoStreamInfo & { codec_type: string }> };
         const video = output.streams.find((item) => item.codec_type === 'video');

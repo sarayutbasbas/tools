@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { registerYoutubeRoutes } from './youtube.js';
 import { registerVideoCompressionRoutes } from './video-compression.js';
+import { registerPdfRoutes } from './pdf.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -25,6 +26,7 @@ app.get('/api/health', (_req, res) => {
 
 registerYoutubeRoutes(app);
 registerVideoCompressionRoutes(app);
+registerPdfRoutes(app);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่คาดคิด';

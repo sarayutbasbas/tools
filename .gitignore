@@ -6,3 +6,4 @@ dist
 .toolbox-temp
 .toolbox-bin
 .removed-features
+public/pdfjs

@@ -18,7 +18,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg ghostscript ca-certificates \
     && rm -r /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

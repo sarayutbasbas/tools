@@ -7,24 +7,54 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { availableVideoQualities, audioBitrates, downloadPercent, mediaError, mp3Encoding, normalizeMetadata, preparationPercent, qualitySelector, registerYoutubeRoutes, safeDownloadName } from '../server/youtube.js';
 import { parseMediaLink } from '../server/media-links.js';
-
-test('accepts YouTube, TikTok full/short links, Instagram posts and Reels, and mobile share text', () => {
-  for (const url of ['https://www.youtube.com/watch?v=test', 'https://youtu.be/test']) assert.equal(parseMediaLink(url)?.platform, 'youtube');
+test('accepts all public HTTP(S) media links and shared text without a site allowlist', () => {
   for (const url of [
-    'https://www.tiktok.com/@creator/video/7059698374567611694',
-    'https://vm.tiktok.com/ABC123/', 'https://vt.tiktok.com/ABC123/', 'https://www.tiktok.com/t/ABC123/',
-  ]) assert.equal(parseMediaLink(url)?.platform, 'tiktok');
-  for (const url of ['https://www.instagram.com/reel/ABC/', 'https://instagram.com/p/ABC/', 'https://www.instagram.com/share/reel/ABC/']) assert.equal(parseMediaLink(url)?.platform, 'instagram');
-  assert.equal(parseMediaLink('ดูคลิปนี้ https://vt.tiktok.com/ABC123/ แชร์จาก TikTok')?.url, 'https://vt.tiktok.com/ABC123/');
+    'https://vimeo.com/76979871', 'https://www.dailymotion.com/video/x123',
+    'https://www.reddit.com/r/videos/comments/123/video/', 'https://x.com/creator/status/123',
+    'https://soundcloud.com/creator/track', 'https://archive.org/details/video',
+    'https://cdn.example.com/video.mp4', 'https://www.facebook.com/share/r/ABC/',
+    'https://www.youtube.com/shorts/ABC', 'https://www.tiktok.com/@creator/video/123',
+  ]) assert.ok(parseMediaLink(url), url);
+  assert.equal(parseMediaLink('ดูคลิป https://vimeo.com/76979871 แชร์จากมือถือ')?.url, 'https://vimeo.com/76979871');
+  assert.equal(parseMediaLink('https://youtube.com.evil.com/watch?v=123')?.platform, 'website');
+  assert.equal(parseMediaLink('https://www.facebook.com/reel/123')?.platform, 'facebook');
 });
 
-test('rejects lookalike domains, credentials, custom ports, and profile links', () => {
+test('rejects non-web schemes, credentials, private IPs, local domains and nonstandard ports', () => {
   for (const url of [
-    'https://instagram.com.evil.test/reel/ABC', 'https://evil.test/?url=https://www.tiktok.com/@x/video/123',
-    'https://www.instagram.com@evil.test/reel/ABC', 'https://user:password@www.instagram.com/reel/ABC',
-    'https://www.instagram.com:1111/reel/ABC', 'https://www.instagram.com/creator/',
-    'https://www.tiktok.com/@creator', 'file:///etc/passwd',
+    'file:///etc/passwd', 'ftp://public.com/video', 'https://user:password@vimeo.com/123',
+    'http://127.0.0.1/video', 'http://2130706433/video', 'http://0x7f000001/video',
+    'http://10.0.0.1/video', 'http://172.20.0.1/video', 'http://192.168.1.1/video',
+    'http://169.254.169.254/latest/meta-data', 'http://100.100.100.200/video',
+    'http://localhost/video', 'http://host.docker.internal/video', 'http://router.local/video',
+    'http://[::1]/video', 'http://[::ffff:127.0.0.1]/video', 'http://[fc00::1]/video',
+    'https://vimeo.com:1111/123', 'http://metadata/video',
   ]) assert.equal(parseMediaLink(url), null, url);
+});
+
+test('additional-source metadata and file flow work without accounts and do not advertise platform names', async () => {
+  const app = express(); app.use(express.json());
+  const extractors: string[] = [];
+  const stream = { format_id: 'audio', vcodec: 'none', acodec: 'aac', ext: 'm4a' };
+  registerYoutubeRoutes(app, async (_command, args, _signal, onLine) => {
+    if (args.includes('--use-extractors')) extractors.push(args[args.indexOf('--use-extractors') + 1]);
+    if (args.includes('--dump-single-json')) return JSON.stringify({ title: 'Anonymous test', duration: 1, formats: [stream], requested_formats: [stream] });
+    if (args.includes('--print')) { const path = args[args.indexOf('-o') + 1].replace('%(ext)s', 'm4a'); await writeFile(path, 'source fixture'); onLine?.('TOOLBOX_FILE:' + JSON.stringify(path)); }
+    else await writeFile(args.at(-1)!, 'audio fixture');
+    return '';
+  });
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== 'string'); const base = `http://127.0.0.1:${address.port}`;
+    for (const [url, platform] of [['https://www.facebook.com/reel/12345/', 'Facebook'], ['https://vimeo.com/76979871', 'วิดีโอ'], ['https://cdn.example.com/video.mp4', 'วิดีโอ']]) {
+      const request = (path: string) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, format: 'mp3', quality: 128, progress: true }) });
+      const info = await request('/api/media/info'); assert.equal(info.status, 200); assert.equal((await info.json()).platform, platform);
+      const job = await request('/api/media'); assert.equal(job.status, 200);
+      const ready = (await job.text()).trim().split('\n').map(line => JSON.parse(line)).find(event => event.type === 'ready'); assert.ok(ready);
+      const file = await fetch(base + ready.downloadUrl); assert.equal(file.status, 200); assert.equal(await file.text(), 'audio fixture');
+    }
+    assert.deepEqual(extractors, []); // All built-in and generic extractors stay enabled.
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
 
 test('handles Instagram metadata with unknown codecs and picks the first video from a carousel', () => {

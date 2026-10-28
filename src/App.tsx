@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { parseMediaLink } from '../server/media-links';
 import { compressImage } from './image-compression';
 import type { ImageCompressionResult } from './image-compression-result';
 import { keepOriginalFile } from '../server/compression-policy';
 import { readApiJson, requireApiStream } from './api-response';
+import { useTheme } from './use-theme';
 import {
   ArrowDownToLine, Check, ChevronRight, CircleAlert, FileAudio, FileVideo,
-  Gauge, Image as ImageIcon, Link2, LoaderCircle, PackageOpen,
-  Sparkles, UploadCloud, Video,
+  Gauge, Image as ImageIcon, Link2, LoaderCircle, FileText,
+  Sparkles, UploadCloud, Video, Sun, Moon,
 } from 'lucide-react';
 
-type Tool = 'download' | 'compress';
+const PdfTool = lazy(() => import('./PdfTool'));
+type Tool = 'download' | 'compress' | 'pdf';
 type DownloadFormat = 'mp3' | 'mp4';
 type Status = 'idle' | 'loading' | 'success' | 'error';
 type ClipInfo = { title: string; platform: string; hasVideo: boolean; hasAudio: boolean; notice?: string; videoQualities: number[]; audioBitrates: number[]; sourceAudioKbps: number | null };
@@ -89,7 +91,7 @@ function DownloadTool() {
     const link = parseMediaLink(url);
     if (!link) {
       setStatus('error');
-      setMessage('วางลิงก์คลิป YouTube, TikTok หรือ Instagram ที่ถูกต้องก่อนดาวน์โหลด');
+      setMessage('วางลิงก์วิดีโอที่ถูกต้องก่อนดาวน์โหลด');
       return;
     }
     const controller = new AbortController();
@@ -377,6 +379,10 @@ function CompressorTool() {
 }
 
 export default function App() {
+  const { theme, toggleTheme } = useTheme();
+  const themeButton = <button className="theme-toggle" onClick={toggleTheme} aria-label="โหมดมืด" aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'เปลี่ยนเป็นธีมสว่าง' : 'เปลี่ยนเป็นธีมมืด'}>
+    {theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}<span>{theme === 'dark' ? 'ธีมสว่าง' : 'ธีมมืด'}</span>
+  </button>;
   const [activeTool, setActiveTool] = useState<Tool>('download');
   const [serverStatus, setServerStatus] = useState<Status>('loading');
   useEffect(() => {
@@ -403,7 +409,7 @@ export default function App() {
     <div className="app-shell">
       <header className="mobile-header">
         <a className="brand" href="#" aria-label="Toolbox home"><img className="brand-mark" src="/brand/toolbox-mark-128.png" width="36" height="36" alt="" /><span>Toolbox</span></a>
-        <span className={`online-dot ${serverStatus}`} role="status">{serverStatus === 'success' ? 'พร้อมใช้งาน' : serverStatus === 'loading' ? 'กำลังตรวจสอบ' : 'เซิร์ฟเวอร์ไม่พร้อม'}</span>
+        <div className="header-actions"><span className={`online-dot ${serverStatus}`} role="status">{serverStatus === 'success' ? 'พร้อมใช้งาน' : serverStatus === 'loading' ? 'กำลังตรวจสอบ' : 'เซิร์ฟเวอร์ไม่พร้อม'}</span>{themeButton}</div>
       </header>
       <aside className="sidebar">
         <a className="brand" href="#" aria-label="Toolbox home"><img className="brand-mark" src="/brand/toolbox-mark-128.png" width="36" height="36" alt="" /><span>Toolbox</span></a>
@@ -411,17 +417,19 @@ export default function App() {
         <nav aria-label="เลือกเครื่องมือ">
           <button className={activeTool === 'download' ? 'active' : ''} onClick={() => setActiveTool('download')}><ArrowDownToLine size={20} /><span>ดาวน์โหลด</span></button>
           <button className={activeTool === 'compress' ? 'active' : ''} onClick={() => setActiveTool('compress')}><Gauge size={20} /><span>บีบอัดไฟล์</span></button>
-          <button className="disabled-tool" disabled><PackageOpen size={20} /><span>เครื่องมือถัดไป</span><small>เร็ว ๆ นี้</small></button>
+          <button className={activeTool === 'pdf' ? 'active' : ''} onClick={() => setActiveTool('pdf')}><FileText size={20} /><span>PDF</span></button>
         </nav>
+        <div className="sidebar-settings">{themeButton}</div>
         <div className="sidebar-foot"><span className="online-pulse" /><span><strong>ทำงานบนเครื่องคุณ</strong><small>ไม่สร้างบัญชี · ไม่เก็บประวัติ</small></span></div>
       </aside>
       <main>
         <div className="mobile-tabs" role="tablist" aria-label="เครื่องมือ">
           <button role="tab" aria-selected={activeTool === 'download'} onClick={() => setActiveTool('download')}><ArrowDownToLine size={18} />ดาวน์โหลด</button>
           <button role="tab" aria-selected={activeTool === 'compress'} onClick={() => setActiveTool('compress')}><Gauge size={18} />บีบอัดไฟล์</button>
+          <button role="tab" aria-selected={activeTool === 'pdf'} onClick={() => setActiveTool('pdf')}><FileText size={18} />PDF</button>
         </div>
         <div className="workspace">
-          {activeTool === 'download' ? <DownloadTool /> : <CompressorTool />}
+          {activeTool === 'download' ? <DownloadTool /> : activeTool === 'compress' ? <CompressorTool /> : <Suspense fallback={<section className="tool-panel"><p className="quality-hint" role="status"><LoaderCircle className="spin" size={18} />กำลังเปิดเครื่องมือ PDF…</p></section>}><PdfTool /></Suspense>}
         </div>
       </main>
     </div>
